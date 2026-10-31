@@ -11,6 +11,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Locate Gradle project
+        id: proj
+        run: |
+          f=$(find . -maxdepth 3 \( -name settings.gradle -o -name settings.gradle.kts \) -not -path './.git/*' | head -n1)
+          if [ -z "$f" ]; then
+            echo "::error::settings.gradle not found. The Gradle project was not uploaded. Files in the repository:"
+            find . -maxdepth 3 -not -path './.git/*' | head -100
+            exit 1
+          fi
+          dir=$(dirname "$f")
+          echo "Gradle project directory: $dir"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -19,15 +32,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.2.0"
+          build-root-directory: ${{ steps.proj.outputs.dir }}
 
       - name: Create Gradle wrapper if missing
-        if: ${{ hashFiles('gradle/wrapper/gradle-wrapper.jar') == '' }}
+        if: ${{ hashFiles(format('{0}/gradle/wrapper/gradle-wrapper.jar', steps.proj.outputs.dir)) == '' }}
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: gradle wrapper --gradle-version 9.2.0
 
       - name: Make gradlew executable
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: chmod +x gradlew
 
       - name: Build
+        working-directory: ${{ steps.proj.outputs.dir }}
         run: ./gradlew build --stacktrace
 
       - name: Upload mod jar
@@ -35,7 +52,7 @@ jobs:
         with:
           name: delta-visuals-jar
           path: |
-            build/libs/*.jar
-            !build/libs/*-sources.jar
-            !build/libs/*-dev.jar
+            ${{ steps.proj.outputs.dir }}/build/libs/*.jar
+            !${{ steps.proj.outputs.dir }}/build/libs/*-sources.jar
+            !${{ steps.proj.outputs.dir }}/build/libs/*-dev.jar
           if-no-files-found: error
